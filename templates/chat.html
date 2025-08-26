@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Randoo - Anonymous Chat</title>
+    <title>StrangerChat - Anonymous Chat</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
         * {
@@ -207,15 +207,66 @@
         .control-btn:hover {
             background: #c82333;
         }
-
-        .banned-message {
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-buttons {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .btn-secondary {
             background: #dc3545;
-            color: white;
-            padding: 15px;
+        }
+        
+        .policy-content {
+            max-height: 50vh;
+            overflow-y: auto;
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #eee;
             border-radius: 10px;
-            margin: 10px auto;
-            text-align: center;
-            max-width: 90%;
+        }
+        
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            cursor: pointer;
+        }
+        
+        .checkbox-container input {
+            width: 20px;
+            height: 20px;
+        }
+        
+        #accept-privacy:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
         
         @media (max-width: 768px) {
@@ -228,18 +279,91 @@
             .message {
                 max-width: 85%;
             }
+            
+            .modal-content {
+                width: 95%;
+                padding: 20px;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- Age Verification Modal -->
+    <div id="age-verification" class="modal">
+        <div class="modal-content">
+            <h2>Age Verification</h2>
+            <p>You must be 18 years or older to use StrangerChat.</p>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="confirmAge(false)">I'm under 18</button>
+                <button class="btn" onclick="confirmAge(true)">I'm 18 or older</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Privacy Policy Modal -->
+    <div id="privacy-policy-modal" class="modal">
+        <div class="modal-content">
+            <h2>Privacy Policy and Terms</h2>
+            <div class="policy-content">
+                <h3>Privacy Policy</h3>
+                <p>Last updated: {{ current_time }}</p>
+                
+                <h4>1. Information We Collect</h4>
+                <ul>
+                    <li>Chat messages (not stored permanently)</li>
+                    <li>Temporary session data</li>
+                    <li>Age verification status</li>
+                </ul>
+
+                <h4>2. How We Use Your Information</h4>
+                <ul>
+                    <li>To connect you with chat partners</li>
+                    <li>To moderate content and ensure safety</li>
+                    <li>To enforce our terms of service</li>
+                </ul>
+
+                <h4>3. Data Protection</h4>
+                <p>Your privacy is important to us. We implement various security measures to maintain the safety of your personal information.</p>
+
+                <h4>4. Your Rights</h4>
+                <p>Under Indian IT Act 2000 and Kerala state laws, you have the right to:</p>
+                <ul>
+                    <li>Access your data</li>
+                    <li>Request deletion of your data</li>
+                    <li>Opt-out of data collection</li>
+                </ul>
+
+                <h3>Terms of Service</h3>
+                <p>By using StrangerChat, you agree to:</p>
+                <ul>
+                    <li>Be 18 years or older</li>
+                    <li>Not share inappropriate or NSFW content</li>
+                    <li>Not harass other users</li>
+                    <li>Not share personal information</li>
+                </ul>
+
+                <p>Violation of these terms may result in temporary or permanent ban.</p>
+            </div>
+            <div class="modal-buttons">
+                <label class="checkbox-container">
+                    <input type="checkbox" id="privacy-checkbox">
+                    <span class="checkmark"></span>
+                    I have read and agree to the Privacy Policy and Terms
+                </label>
+                <button class="btn" id="accept-privacy" disabled>Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Chat Container -->
     <div class="container">
         <div class="header">
-            <h1>🗣️ Randoo</h1>
+            <h1>🗣️ StrangerChat</h1>
             <div class="status" id="status">Connect with random strangers anonymously</div>
         </div>
         
         <div class="welcome-screen" id="welcome-screen">
-            <h2>Welcome to Randoo</h2>
+            <h2>Welcome to StrangerChat</h2>
             <p>Chat anonymously with random strangers from around the world. Click the button below to get connected instantly.</p>
             <button class="btn" id="start-chat-btn">Start Chatting</button>
         </div>
@@ -273,10 +397,57 @@
         const status = document.getElementById('status');
         
         let isConnected = false;
-        let isBanned = false;
+        let ageVerified = false;
+        let privacyAccepted = false;
+        
+        // Show age verification on load
+        window.onload = function() {
+            showAgeVerification();
+        };
+        
+        function showAgeVerification() {
+            document.getElementById('age-verification').style.display = 'flex';
+        }
+        
+        function showPrivacyPolicy() {
+            document.getElementById('privacy-policy-modal').style.display = 'flex';
+        }
+        
+        function confirmAge(isAdult) {
+            document.getElementById('age-verification').style.display = 'none';
+            if (isAdult) {
+                ageVerified = true;
+                socket.emit('verify_age', { isAdult: true });
+                showPrivacyPolicy();
+            } else {
+                alert('Sorry, you must be 18 or older to use StrangerChat.');
+                window.location.href = 'https://www.google.com';
+            }
+        }
+        
+        // Privacy policy checkbox
+        document.getElementById('privacy-checkbox').addEventListener('change', function() {
+            document.getElementById('accept-privacy').disabled = !this.checked;
+        });
+        
+        // Privacy policy acceptance
+        document.getElementById('accept-privacy').addEventListener('click', function() {
+            privacyAccepted = true;
+            socket.emit('accept_privacy');
+            document.getElementById('privacy-policy-modal').style.display = 'none';
+        });
         
         // Start chat
         startChatBtn.addEventListener('click', () => {
+            if (!ageVerified || !privacyAccepted) {
+                alert('You must verify your age and accept the privacy policy to chat.');
+                if (!ageVerified) {
+                    showAgeVerification();
+                } else if (!privacyAccepted) {
+                    showPrivacyPolicy();
+                }
+                return;
+            }
             socket.emit('find_stranger');
             startChatBtn.disabled = true;
             startChatBtn.textContent = 'Searching...';
@@ -285,15 +456,11 @@
         // Send message
         function sendMessage() {
             const message = messageInput.value.trim();
-            if (message && isConnected && !isBanned) {
+            if (message && isConnected) {
                 socket.emit('message', { message });
-                addMessage(message, 'you', getCurrentTime());
+                addMessage(message, 'you', new Date().toLocaleTimeString());
                 messageInput.value = '';
             }
-        }
-        
-        function getCurrentTime() {
-            return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
         
         sendBtn.addEventListener('click', sendMessage);
@@ -325,6 +492,10 @@
         }
         
         // Socket events
+        socket.on('connected', (data) => {
+            console.log('Connected to server', data);
+        });
+        
         socket.on('searching', (data) => {
             status.textContent = data.message;
             welcomeScreen.style.display = 'none';
@@ -343,17 +514,11 @@
         });
         
         socket.on('message', (data) => {
-            if (data.type === 'stranger') {
-                addMessage(data.message, 'stranger', getCurrentTime());
-            }
+            addMessage(data.message, 'stranger', data.timestamp);
         });
         
         socket.on('banned', (data) => {
-            isBanned = true;
-            const banMessage = document.createElement('div');
-            banMessage.className = 'banned-message';
-            banMessage.innerHTML = `${data.message}<br>Pay ₹599 for instant unban or wait ${data.duration} minutes.`;
-            chatArea.appendChild(banMessage);
+            addSystemMessage(`${data.message} Wait ${data.duration} minutes or pay ₹599 for instant unban.`);
             inputArea.style.display = 'none';
         });
         
@@ -364,9 +529,7 @@
             newChatBtn.disabled = false;
         });
         
-        socket.on('chat_ended', (data) => {
-            isConnected = false;
-            status.textContent = 'Chat ended';
+        socket.on('error', (data) => {
             addSystemMessage(data.message);
         });
         
@@ -400,7 +563,6 @@
         // Reset UI on disconnect
         socket.on('disconnect', () => {
             isConnected = false;
-            isBanned = false;
             status.textContent = 'Disconnected';
             startChatBtn.disabled = false;
             startChatBtn.textContent = 'Start Chatting';

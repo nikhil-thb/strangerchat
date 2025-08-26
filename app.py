@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, session
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from better_profanity import profanity
 from datetime import datetime, timedelta
@@ -12,30 +12,81 @@ socketio = SocketIO(app)
 active_users = {}
 banned_users = {}
 user_rooms = {}
+age_verified_users = set()
+privacy_accepted_users = set()
 
 def check_message(message):
     """Check if message contains NSFW content"""
     return profanity.contains_profanity(message)
 
+def get_current_time():
+    """Get formatted current time"""
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
 @app.route('/')
 def index():
-    return render_template('chat.html')
+    return render_template('chat.html', 
+                         current_time=get_current_time(),
+                         current_user="nikhil-thb")
 
 @socketio.on('connect')
 def handle_connect():
     """Handle client connection"""
     try:
         session_id = request.sid
-        active_users[session_id] = None  # No room assigned yet
-        emit('connected', {'user_id': session_id})
+        active_users[session_id] = None
+        emit('connected', {
+            'user_id': session_id,
+            'timestamp': get_current_time()
+        })
     except Exception as e:
         print(f"Connection error: {str(e)}")
+
+@socketio.on('verify_age')
+def handle_age_verification(data):
+    """Handle age verification"""
+    try:
+        user_sid = request.sid
+        if data.get('isAdult'):
+            age_verified_users.add(user_sid)
+            emit('age_verified', {
+                'timestamp': get_current_time()
+            })
+    except Exception as e:
+        print(f"Age verification error: {str(e)}")
+
+@socketio.on('accept_privacy')
+def handle_privacy_acceptance():
+    """Handle privacy policy acceptance"""
+    try:
+        user_sid = request.sid
+        privacy_accepted_users.add(user_sid)
+        emit('privacy_accepted', {
+            'timestamp': get_current_time()
+        })
+    except Exception as e:
+        print(f"Privacy acceptance error: {str(e)}")
 
 @socketio.on('find_stranger')
 def handle_find_stranger():
     """Handle finding a chat partner"""
     try:
         user_sid = request.sid
+        
+        # Verify age and privacy policy acceptance
+        if user_sid not in age_verified_users:
+            emit('error', {
+                'message': 'Age verification required',
+                'timestamp': get_current_time()
+            })
+            return
+            
+        if user_sid not in privacy_accepted_users:
+            emit('error', {
+                'message': 'Privacy policy acceptance required',
+                'timestamp': get_current_time()
+            })
+            return
         
         # Leave current room if any
         if active_users.get(user_sid):
@@ -44,17 +95,21 @@ def handle_find_stranger():
         
         # Check if user is banned
         if user_sid in banned_users:
-            if datetime.now() < banned_users[user_sid]:
-                remaining = (banned_users[user_sid] - datetime.now()).seconds // 60
+            if datetime.utcnow() < banned_users[user_sid]:
+                remaining = (banned_users[user_sid] - datetime.utcnow()).seconds // 60
                 emit('banned', {
                     'message': 'You are banned for sending inappropriate content.',
-                    'duration': remaining
+                    'duration': remaining,
+                    'timestamp': get_current_time()
                 })
                 return
             else:
                 del banned_users[user_sid]
         
-        emit('searching', {'message': 'Looking for a stranger...'})
+        emit('searching', {
+            'message': 'Looking for a stranger...',
+            'timestamp': get_current_time()
+        })
         
         # Find available partner
         for potential_partner in active_users:
@@ -71,12 +126,16 @@ def handle_find_stranger():
                 
                 # Notify both users
                 emit('paired', {
-                    'message': 'You are now chatting with a stranger!'
+                    'message': 'You are now chatting with a stranger!',
+                    'timestamp': get_current_time()
                 }, room=room)
                 return
         
         # No partner found
-        emit('searching', {'message': 'Waiting for someone to join...'})
+        emit('searching', {
+            'message': 'Waiting for someone to join...',
+            'timestamp': get_current_time()
+        })
     except Exception as e:
         print(f"Find stranger error: {str(e)}")
 
@@ -90,11 +149,12 @@ def handle_message(data):
 
         # Check if user is banned
         if user_sid in banned_users:
-            if datetime.now() < banned_users[user_sid]:
-                remaining = (banned_users[user_sid] - datetime.now()).seconds // 60
+            if datetime.utcnow() < banned_users[user_sid]:
+                remaining = (banned_users[user_sid] - datetime.utcnow()).seconds // 60
                 emit('banned', {
                     'message': 'You are banned for sending inappropriate content.',
-                    'duration': remaining
+                    'duration': remaining,
+                    'timestamp': get_current_time()
                 })
                 return
             else:
@@ -103,17 +163,19 @@ def handle_message(data):
         # Check for NSFW content
         if check_message(message):
             # Ban user for 1 hour
-            banned_users[user_sid] = datetime.now() + timedelta(hours=1)
+            banned_users[user_sid] = datetime.utcnow() + timedelta(hours=1)
             emit('banned', {
                 'message': 'You are banned for sending inappropriate content.',
-                'duration': 60
+                'duration': 60,
+                'timestamp': get_current_time()
             })
             return
 
         if room:
             emit('message', {
                 'message': message,
-                'type': 'stranger'
+                'type': 'stranger',
+                'timestamp': get_current_time()
             }, room=room, include_self=False)
     except Exception as e:
         print(f"Message error: {str(e)}")
@@ -128,7 +190,8 @@ def handle_disconnect_chat():
         if room:
             leave_room(room)
             emit('partner_disconnected', {
-                'message': 'Stranger has disconnected.'
+                'message': 'Stranger has disconnected.',
+                'timestamp': get_current_time()
             }, room=room)
             active_users[user_sid] = None
     except Exception as e:
@@ -144,9 +207,17 @@ def handle_disconnect():
             if room:
                 leave_room(room)
                 emit('partner_disconnected', {
-                    'message': 'Stranger has disconnected.'
+                    'message': 'Stranger has disconnected.',
+                    'timestamp': get_current_time()
                 }, room=room)
             del active_users[user_sid]
+        
+        # Clean up verification records
+        if user_sid in age_verified_users:
+            age_verified_users.remove(user_sid)
+        if user_sid in privacy_accepted_users:
+            privacy_accepted_users.remove(user_sid)
+            
     except Exception as e:
         print(f"Disconnect error: {str(e)}")
 
