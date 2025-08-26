@@ -307,6 +307,7 @@
             const message = messageInput.value.trim();
             if (message && isConnected) {
                 socket.emit('send_message', { message });
+                addMessage(message, 'you', new Date().toLocaleTimeString());
                 messageInput.value = '';
             }
         }
@@ -333,6 +334,7 @@
             status.textContent = 'Looking for a stranger...';
             newChatBtn.disabled = true;
             newChatBtn.textContent = 'Searching...';
+            addSystemMessage('Looking for a stranger...');
         });
         
         // Socket events
@@ -352,6 +354,9 @@
             messageInput.focus();
             newChatBtn.disabled = false;
             newChatBtn.textContent = 'New Chat';
+            
+            // Ensure send button is enabled
+            sendBtn.disabled = false;
         });
         
         socket.on('receive_message', (data) => {
@@ -364,6 +369,9 @@
             addSystemMessage(data.message);
             newChatBtn.disabled = false;
             newChatBtn.textContent = 'New Chat';
+            
+            // Keep input area visible so user can start new chat easily
+            // inputArea.style.display = 'none';  // Commented out to keep input visible
         });
         
         socket.on('chat_ended', (data) => {
