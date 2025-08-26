@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StrangerChat - Anonymous Chat</title>
+    <title>Randoo - Anonymous Chat</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
         * {
@@ -193,7 +193,7 @@
         }
         
         .control-btn {
-            background: #dc3545;
+            background: #28a745;
             color: white;
             border: none;
             padding: 8px 16px;
@@ -205,7 +205,12 @@
         }
         
         .control-btn:hover {
-            background: #c82333;
+            background: #218838;
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
         
         .typing-indicator {
@@ -232,12 +237,12 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🗣️ StrangerChat</h1>
+            <h1>🗣️ Randoo</h1>
             <div class="status" id="status">Connect with random strangers anonymously</div>
         </div>
         
         <div class="welcome-screen" id="welcome-screen">
-            <h2>Welcome to StrangerChat!</h2>
+            <h2>Welcome to Randoo</h2>
             <p>Chat anonymously with random strangers from around the world. Click the button below to get connected instantly.</p>
             <button class="btn" id="start-chat-btn">Start Chatting</button>
         </div>
@@ -252,8 +257,7 @@
         </div>
         
         <div class="controls" id="controls">
-            <button class="control-btn" id="disconnect-btn">Disconnect</button>
-            <button class="control-btn" id="new-chat-btn" style="background: #28a745;">New Chat</button>
+            <button class="control-btn" id="new-chat-btn">New Chat</button>
         </div>
     </div>
 
@@ -266,11 +270,30 @@
         const startChatBtn = document.getElementById('start-chat-btn');
         const messageInput = document.getElementById('message-input');
         const sendBtn = document.getElementById('send-btn');
-        const disconnectBtn = document.getElementById('disconnect-btn');
         const newChatBtn = document.getElementById('new-chat-btn');
         const status = document.getElementById('status');
         
         let isConnected = false;
+        
+        // Function to clear chat room and reset UI
+        function clearChatRoom() {
+            // Clear all messages from chat area
+            chatArea.innerHTML = '';
+            
+            // Clear message input
+            messageInput.value = '';
+            
+            // Reset connection status
+            isConnected = false;
+            
+            // Hide input area and controls
+            inputArea.style.display = 'none';
+            controls.style.display = 'none';
+            
+            // Show chat area (in case it was hidden)
+            chatArea.style.display = 'block';
+            welcomeScreen.style.display = 'none';
+        }
         
         // Start chat
         startChatBtn.addEventListener('click', () => {
@@ -295,16 +318,21 @@
             }
         });
         
-        // Disconnect
-        disconnectBtn.addEventListener('click', () => {
-            socket.emit('disconnect_chat');
-        });
-        
-        // New chat
+        // New chat - clear room and search for new partner
         newChatBtn.addEventListener('click', () => {
+            // Disconnect current chat if connected
+            if (isConnected) {
+                socket.emit('disconnect_chat');
+            }
+            
+            // Clear the chat room
+            clearChatRoom();
+            
+            // Start searching for new partner
             socket.emit('find_stranger');
             status.textContent = 'Looking for a stranger...';
             newChatBtn.disabled = true;
+            newChatBtn.textContent = 'Searching...';
         });
         
         // Socket events
@@ -323,6 +351,7 @@
             addSystemMessage(data.message);
             messageInput.focus();
             newChatBtn.disabled = false;
+            newChatBtn.textContent = 'New Chat';
         });
         
         socket.on('receive_message', (data) => {
@@ -334,12 +363,15 @@
             status.textContent = 'Stranger disconnected';
             addSystemMessage(data.message);
             newChatBtn.disabled = false;
+            newChatBtn.textContent = 'New Chat';
         });
         
         socket.on('chat_ended', (data) => {
             isConnected = false;
             status.textContent = 'Chat ended';
             addSystemMessage(data.message);
+            newChatBtn.disabled = false;
+            newChatBtn.textContent = 'New Chat';
         });
         
         function addMessage(text, sender, timestamp) {
@@ -375,6 +407,8 @@
             status.textContent = 'Disconnected';
             startChatBtn.disabled = false;
             startChatBtn.textContent = 'Start Chatting';
+            newChatBtn.disabled = false;
+            newChatBtn.textContent = 'New Chat';
         });
     </script>
 </body>
